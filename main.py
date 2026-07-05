@@ -12,7 +12,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = FastAPI(title="USDT/VES y BCV API")
 
-# Middleware CORS para permitir conexiones desde cualquier origen
+# Middleware CORS para permitir peticiones desde cualquier origen
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -38,30 +38,31 @@ HEADERS_BINANCE = {
 def fetch_data():
     error_msg = None
     
-    # 1. Obtener precio Binance USDT (Venta = tradeType: SELL)
+    # 1. Obtener precio Binance USDT (Compra de USDT filtrando solo comerciantes)
     try:
         payload = {
             "page": 1, 
-            "rows": 20, 
+            "rows": 10, 
             "payTypes": [], 
             "asset": "USDT", 
             "fiat": "VES", 
-            "tradeType": "SELL" # Cambiado a SELL
+            "tradeType": "BUY",          # Apartado de COMPRA
+            "proMerchantAds": True       # Solo COMERCIANTES VERIFICADOS
         }
         r_bin = requests.post(URL_BINANCE, headers=HEADERS_BINANCE, json=payload, timeout=15)
         r_bin.raise_for_status()
         data = r_bin.json()
         ads = data.get("data", []) or []
         
-        # Filtramos precios válidos
+        # Obtenemos los precios de los anuncios devueltos
         prices = [float(ad.get("adv", {}).get("price")) for ad in ads if ad.get("adv", {}).get("price")]
         
         if prices:
-            # Seleccionamos el precio máximo porque queremos vender al mejor postor
-            cache["usdt_price"] = round(max(prices), 4)
+            # Para comprar USDT, queremos el precio más bajo del mercado (min)
+            cache["usdt_price"] = round(min(prices), 4)
             cache["count"] = len(prices)
         else:
-            error_msg = "No se encontraron precios P2P para venta"
+            error_msg = "No se encontraron anuncios de compra de comerciantes verificados"
     except Exception as e:
         error_msg = f"Error Binance: {str(e)}"
 
@@ -77,7 +78,7 @@ def fetch_data():
             precio_str = match.group(1).replace(',', '.')
             cache["bcv_price"] = round(float(precio_str), 2)
         else:
-            raise ValueError("No se detectó la estructura del precio en el HTML del BCV")
+            raise ValueError("No se detectó el precio en la web del BCV")
             
     except Exception as e:
         error_bcv = f"Error BCV: {str(e)}"
@@ -86,6 +87,7 @@ def fetch_data():
     cache["error"] = error_msg
     cache["last_update"] = datetime.now(timezone.utc).isoformat()
 
+# Configuración del scheduler
 scheduler = BackgroundScheduler()
 scheduler.add_job(fetch_data, "interval", minutes=1)
 scheduler.start()
