@@ -36,7 +36,7 @@ HEADERS_BINANCE = {
     "User-Agent": "Mozilla/5.0"
 }
 
-def fetch_binance_prices(trade_type, pro_merchant_only, rows=10):
+def fetch_binance_prices(trade_type, pro_merchant_only, rows=15):
     """Consulta Binance P2P y devuelve la lista de precios de los anuncios encontrados,
     en el mismo orden en que Binance los entrega (mejor precio primero)."""
     payload = {
@@ -71,11 +71,12 @@ def fetch_data():
             used_fallback = True
 
         if prices:
-            # Promedio de los primeros N anuncios (mejor precio primero según Binance).
-            # Esto diluye cualquier anuncio puntual con precio atípico en vez de
-            # depender de un único valor máximo.
+            # IMPORTANTE: Binance no garantiza que el orden de la respuesta sea por precio
+            # (su orden por defecto mezcla precio, reputación y otros factores). Por eso
+            # ordenamos explícitamente antes de tomar los "mejores N" para promediar.
             N = 7
-            top_n = prices[:N]
+            prices_sorted = sorted(prices, reverse=True)  # de mayor a menor (mejor para vender)
+            top_n = prices_sorted[:N]
             avg_price = sum(top_n) / len(top_n)
             cache["usdt_price"] = round(avg_price, 4)
             cache["count"] = len(top_n)
