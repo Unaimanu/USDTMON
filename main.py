@@ -37,10 +37,11 @@ HEADERS_BINANCE = {
 }
 
 # Métodos de pago personalizados (definidos libremente por cada comerciante en Binance,
-# no son rieles de pago estándar) que corresponden a servicios de recarga telefónica y
-# no a venta real de USDT. Cotizan artificialmente alto y deben excluirse del cálculo.
-# Coincidencia por substring, insensible a mayúsculas/acentos.
-EXCLUDED_PAYMENT_KEYWORDS = ["recarga", "pines", "pin movil", "pin móvil", "recharge"]
+# no son rieles de pago estándar) del tipo "Recarga de Pines" (top-up telefónico), que
+# cotizan artificialmente alto y no representan una venta real de USDT.
+# Exclusión estricta: requiere AMBAS palabras juntas en el mismo método, para no
+# descartar por error otros métodos legítimos que solo compartan una de las dos.
+EXCLUDED_PAYMENT_PAIRS = [("recarga", "pin")]
 
 
 def _normalize(text):
@@ -52,13 +53,13 @@ def _normalize(text):
 
 
 def ad_has_excluded_payment(ad):
-    """True si CUALQUIERA de los métodos de pago del anuncio coincide con la lista excluida."""
+    """True solo si algún método de pago contiene AMBAS palabras de un mismo par excluido
+    (ej. 'recarga' y 'pin' juntas, como en 'Recarga de Pines')."""
     trade_methods = ad.get("adv", {}).get("tradeMethods", []) or []
     for tm in trade_methods:
-        name = _normalize(tm.get("tradeMethodName"))
-        identifier = _normalize(tm.get("identifier"))
-        for kw in EXCLUDED_PAYMENT_KEYWORDS:
-            if kw in name or kw in identifier:
+        combined = _normalize(tm.get("tradeMethodName")) + " " + _normalize(tm.get("identifier"))
+        for word_a, word_b in EXCLUDED_PAYMENT_PAIRS:
+            if word_a in combined and word_b in combined:
                 return True
     return False
 
