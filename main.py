@@ -36,8 +36,36 @@ HEADERS_BINANCE = {
     "User-Agent": "Mozilla/5.0"
 }
 
+# Métodos de pago personalizados (definidos libremente por cada comerciante en Binance,
+# no son rieles de pago estándar) que corresponden a servicios de recarga telefónica y
+# no a venta real de USDT. Cotizan artificialmente alto y deben excluirse del cálculo.
+# Coincidencia por substring, insensible a mayúsculas/acentos.
+EXCLUDED_PAYMENT_KEYWORDS = ["recarga", "pines", "pin movil", "pin móvil", "recharge"]
+
+
+def _normalize(text):
+    """Minúsculas y sin acentos, para comparar de forma robusta."""
+    import unicodedata
+    text = text or ""
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    return text.lower()
+
+
+def ad_has_excluded_payment(ad):
+    """True si CUALQUIERA de los métodos de pago del anuncio coincide con la lista excluida."""
+    trade_methods = ad.get("adv", {}).get("tradeMethods", []) or []
+    for tm in trade_methods:
+        name = _normalize(tm.get("tradeMethodName"))
+        identifier = _normalize(tm.get("identifier"))
+        for kw in EXCLUDED_PAYMENT_KEYWORDS:
+            if kw in name or kw in identifier:
+                return True
+    return False
+
+
 def fetch_binance_prices(trade_type, pro_merchant_only, rows=10):
-    """Consulta Binance P2P y devuelve la lista de precios de los anuncios encontrados."""
+    """Consulta Binance P2P y devuelve la lista de precios de los anuncios encontrados,
+    excluyendo anuncios de métodos de pago tipo 'recarga de pines' (no representativos)."""
     payload = {
         "page": 1,
         "rows": rows,
@@ -51,6 +79,7 @@ def fetch_binance_prices(trade_type, pro_merchant_only, rows=10):
     r_bin.raise_for_status()
     data = r_bin.json()
     ads = data.get("data", []) or []
+    ads = [ad for ad in ads if not ad_has_excluded_payment(ad)]
     return [float(ad.get("adv", {}).get("price")) for ad in ads if ad.get("adv", {}).get("price")]
 
 
