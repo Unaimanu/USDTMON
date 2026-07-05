@@ -126,4 +126,3 @@ def get_rates():
         "merchant_filter": cache["merchant_filter"],
         "error": cache["error"]
     }
-    
