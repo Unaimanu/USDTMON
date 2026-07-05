@@ -26,7 +26,6 @@ cache = {
     "usdt_price": 0.00,
     "bcv_price": 0.00,
     "count": 0,
-    "merchant_filter": None,
     "error": None
 }
 
@@ -59,20 +58,14 @@ def fetch_data():
     error_msg = None
 
     # 1. Obtener precio Binance USDT (Venta de USDT)
-    # Preferimos solo comerciantes verificados, pero en el lado "Vender" a veces
-    # no hay ninguno activo en el momento de la consulta. Si eso pasa, hacemos
-    # fallback a la lista general para no quedarnos sin dato.
+    # Se usa el mercado general (sin filtrar por "Comerciante Pro"): ese filtro deja
+    # a veces una muestra muy chica (3-4 anuncios) y poco representativa del precio
+    # real, ya que suelen ser más conservadores que el mercado abierto.
     try:
-        prices = fetch_binance_prices("SELL", pro_merchant_only=True)
-        used_fallback = False
-
-        if not prices:
-            prices = fetch_binance_prices("SELL", pro_merchant_only=False)
-            used_fallback = True
+        prices = fetch_binance_prices("SELL", pro_merchant_only=False)
 
         if prices:
-            # IMPORTANTE: Binance no garantiza que el orden de la respuesta sea por precio
-            # (su orden por defecto mezcla precio, reputación y otros factores). Por eso
+            # Binance no garantiza que el orden de la respuesta sea por precio, así que
             # ordenamos explícitamente antes de tomar los "mejores N" para promediar.
             N = 7
             prices_sorted = sorted(prices, reverse=True)  # de mayor a menor (mejor para vender)
@@ -80,9 +73,8 @@ def fetch_data():
             avg_price = sum(top_n) / len(top_n)
             cache["usdt_price"] = round(avg_price, 4)
             cache["count"] = len(top_n)
-            cache["merchant_filter"] = not used_fallback
         else:
-            error_msg = "No se encontraron anuncios de venta (ni con ni sin filtro de comerciante)"
+            error_msg = "No se encontraron anuncios de venta"
     except Exception as e:
         error_msg = f"Error Binance: {str(e)}"
 
@@ -123,6 +115,6 @@ def get_rates():
         "usdt_price": cache["usdt_price"],
         "bcv_price": cache["bcv_price"],
         "ads_used": cache["count"],
-        "merchant_filter": cache["merchant_filter"],
         "error": cache["error"]
     }
+    
