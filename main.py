@@ -12,7 +12,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = FastAPI(title="USDT/VES y BCV API")
 
-# Middleware para CORS
+# Middleware CORS para permitir conexiones desde cualquier origen
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,34 +26,42 @@ cache = {
     "usdt_price": 0.00,
     "bcv_price": 0.00,
     "count": 0,
-    "error": None,
-    "history": []  # Lista para guardar los últimos 50 registros
+    "error": None
 }
 
 URL_BINANCE = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
-HEADERS_BINANCE = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+HEADERS_BINANCE = {
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0"
+}
 
 def fetch_data():
     error_msg = None
     
-    # 1. Obtener precio Binance USDT
+    # 1. Obtener precio Binance USDT (Venta = tradeType: SELL)
     try:
-        payload = {"page": 1, "rows": 20, "payTypes": [], "asset": "USDT", "fiat": "VES", "tradeType": "BUY"}
+        payload = {
+            "page": 1, 
+            "rows": 20, 
+            "payTypes": [], 
+            "asset": "USDT", 
+            "fiat": "VES", 
+            "tradeType": "SELL" # Cambiado a SELL
+        }
         r_bin = requests.post(URL_BINANCE, headers=HEADERS_BINANCE, json=payload, timeout=15)
         r_bin.raise_for_status()
-        ads = r_bin.json().get("data", []) or []
+        data = r_bin.json()
+        ads = data.get("data", []) or []
+        
+        # Filtramos precios válidos
         prices = [float(ad.get("adv", {}).get("price")) for ad in ads if ad.get("adv", {}).get("price")]
         
         if prices:
-            cache["usdt_price"] = round(sum(prices) / len(prices), 4)
+            # Seleccionamos el precio máximo porque queremos vender al mejor postor
+            cache["usdt_price"] = round(max(prices), 4)
             cache["count"] = len(prices)
-            
-            # Guardar en historial
-            timestamp = datetime.now(timezone.utc).strftime("%H:%M")
-            cache["history"].append({"time": timestamp, "price": cache["usdt_price"]})
-            if len(cache["history"]) > 50: cache["history"].pop(0)
         else:
-            error_msg = "No se encontraron precios P2P"
+            error_msg = "No se encontraron precios P2P para venta"
     except Exception as e:
         error_msg = f"Error Binance: {str(e)}"
 
@@ -62,11 +70,18 @@ def fetch_data():
         headers_bcv = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         r_bcv = requests.get("https://www.bcv.org.ve/", headers=headers_bcv, verify=False, timeout=15)
         r_bcv.raise_for_status()
+        
         match = re.search(r'id="dolar"[\s\S]*?([\d]+,[\d]+)', r_bcv.text, re.IGNORECASE)
+        
         if match:
-            cache["bcv_price"] = round(float(match.group(1).replace(',', '.')), 2)
+            precio_str = match.group(1).replace(',', '.')
+            cache["bcv_price"] = round(float(precio_str), 2)
+        else:
+            raise ValueError("No se detectó la estructura del precio en el HTML del BCV")
+            
     except Exception as e:
-        error_msg = f"{error_msg} | Error BCV: {str(e)}" if error_msg else f"Error BCV: {str(e)}"
+        error_bcv = f"Error BCV: {str(e)}"
+        error_msg = f"{error_msg} | {error_bcv}" if error_msg else error_bcv
 
     cache["error"] = error_msg
     cache["last_update"] = datetime.now(timezone.utc).isoformat()
@@ -85,6 +100,7 @@ def get_rates():
         "last_update": cache["last_update"],
         "usdt_price": cache["usdt_price"],
         "bcv_price": cache["bcv_price"],
-        "history": cache["history"],
+        "ads_used": cache["count"],
         "error": cache["error"]
     }
+    
