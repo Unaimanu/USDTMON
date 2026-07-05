@@ -37,32 +37,32 @@ HEADERS_BINANCE = {
 
 def fetch_data():
     error_msg = None
-    
-    # 1. Obtener precio Binance USDT (Compra de USDT filtrando solo comerciantes)
+
+    # 1. Obtener precio Binance USDT (Venta de USDT filtrando solo comerciantes)
     try:
         payload = {
-            "page": 1, 
-            "rows": 10, 
-            "payTypes": [], 
-            "asset": "USDT", 
-            "fiat": "VES", 
-            "tradeType": "BUY",          # Apartado de COMPRA
+            "page": 1,
+            "rows": 10,
+            "payTypes": [],
+            "asset": "USDT",
+            "fiat": "VES",
+            "tradeType": "SELL",         # Apartado de VENTA (yo vendo USDT)
             "proMerchantAds": True       # Solo COMERCIANTES VERIFICADOS
         }
         r_bin = requests.post(URL_BINANCE, headers=HEADERS_BINANCE, json=payload, timeout=15)
         r_bin.raise_for_status()
         data = r_bin.json()
         ads = data.get("data", []) or []
-        
+
         # Obtenemos los precios de los anuncios devueltos
         prices = [float(ad.get("adv", {}).get("price")) for ad in ads if ad.get("adv", {}).get("price")]
-        
+
         if prices:
-            # Para comprar USDT, queremos el precio más bajo del mercado (min)
-            cache["usdt_price"] = round(min(prices), 4)
+            # Al vender USDT, quiero el precio más alto que me paguen (max)
+            cache["usdt_price"] = round(max(prices), 4)
             cache["count"] = len(prices)
         else:
-            error_msg = "No se encontraron anuncios de compra de comerciantes verificados"
+            error_msg = "No se encontraron anuncios de venta de comerciantes verificados"
     except Exception as e:
         error_msg = f"Error Binance: {str(e)}"
 
@@ -71,15 +71,15 @@ def fetch_data():
         headers_bcv = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         r_bcv = requests.get("https://www.bcv.org.ve/", headers=headers_bcv, verify=False, timeout=15)
         r_bcv.raise_for_status()
-        
+
         match = re.search(r'id="dolar"[\s\S]*?([\d]+,[\d]+)', r_bcv.text, re.IGNORECASE)
-        
+
         if match:
             precio_str = match.group(1).replace(',', '.')
             cache["bcv_price"] = round(float(precio_str), 2)
         else:
             raise ValueError("No se detectó el precio en la web del BCV")
-            
+
     except Exception as e:
         error_bcv = f"Error BCV: {str(e)}"
         error_msg = f"{error_msg} | {error_bcv}" if error_msg else error_bcv
