@@ -12,13 +12,15 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = FastAPI(title="USDT/VES y BCV API")
 
+# --- BLOQUE DE CORS AÑADIDO ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Permite peticiones desde cualquier origen
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# ------------------------------
 
 cache = {
     "last_update": None,
@@ -42,7 +44,8 @@ def fetch_data():
         payload = {"page": 1, "rows": 20, "payTypes": [], "asset": "USDT", "fiat": "VES", "tradeType": "BUY"}
         r_bin = requests.post(URL_BINANCE, headers=HEADERS_BINANCE, json=payload, timeout=15)
         r_bin.raise_for_status()
-        ads = r_bin.json().get("data", []) or []
+        data = r_bin.json()
+        ads = data.get("data", []) or []
         prices = [float(ad.get("adv", {}).get("price")) for ad in ads if ad.get("adv", {}).get("price")]
         
         if prices:
@@ -55,7 +58,6 @@ def fetch_data():
 
     # 2. Obtener precio Oficial BCV
     try:
-        # Añadimos un User-Agent para simular que somos un navegador real
         headers_bcv = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         r_bcv = requests.get("https://www.bcv.org.ve/", headers=headers_bcv, verify=False, timeout=15)
         r_bcv.raise_for_status()
@@ -76,7 +78,6 @@ def fetch_data():
     cache["last_update"] = datetime.now(timezone.utc).isoformat()
 
 scheduler = BackgroundScheduler()
-# AQUI ESTA EL CAMBIO: Ahora se ejecuta cada 1 minuto
 scheduler.add_job(fetch_data, "interval", minutes=1)
 scheduler.start()
 
