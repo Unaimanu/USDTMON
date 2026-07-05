@@ -36,37 +36,9 @@ HEADERS_BINANCE = {
     "User-Agent": "Mozilla/5.0"
 }
 
-# Métodos de pago personalizados (definidos libremente por cada comerciante en Binance,
-# no son rieles de pago estándar) del tipo "Recarga de Pines" (top-up telefónico), que
-# cotizan artificialmente alto y no representan una venta real de USDT.
-# Exclusión estricta: requiere AMBAS palabras juntas en el mismo método, para no
-# descartar por error otros métodos legítimos que solo compartan una de las dos.
-EXCLUDED_PAYMENT_PAIRS = [("recarga", "pin")]
-
-
-def _normalize(text):
-    """Minúsculas y sin acentos, para comparar de forma robusta."""
-    import unicodedata
-    text = text or ""
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
-    return text.lower()
-
-
-def ad_has_excluded_payment(ad):
-    """True solo si algún método de pago contiene AMBAS palabras de un mismo par excluido
-    (ej. 'recarga' y 'pin' juntas, como en 'Recarga de Pines')."""
-    trade_methods = ad.get("adv", {}).get("tradeMethods", []) or []
-    for tm in trade_methods:
-        combined = _normalize(tm.get("tradeMethodName")) + " " + _normalize(tm.get("identifier"))
-        for word_a, word_b in EXCLUDED_PAYMENT_PAIRS:
-            if word_a in combined and word_b in combined:
-                return True
-    return False
-
-
 def fetch_binance_prices(trade_type, pro_merchant_only, rows=10):
     """Consulta Binance P2P y devuelve la lista de precios de los anuncios encontrados,
-    excluyendo anuncios de métodos de pago tipo 'recarga de pines' (no representativos)."""
+    en el mismo orden en que Binance los entrega (mejor precio primero)."""
     payload = {
         "page": 1,
         "rows": rows,
@@ -80,7 +52,6 @@ def fetch_binance_prices(trade_type, pro_merchant_only, rows=10):
     r_bin.raise_for_status()
     data = r_bin.json()
     ads = data.get("data", []) or []
-    ads = [ad for ad in ads if not ad_has_excluded_payment(ad)]
     return [float(ad.get("adv", {}).get("price")) for ad in ads if ad.get("adv", {}).get("price")]
 
 
@@ -100,9 +71,14 @@ def fetch_data():
             used_fallback = True
 
         if prices:
-            # Al vender USDT, quiero el precio más alto que me paguen (max)
-            cache["usdt_price"] = round(max(prices), 4)
-            cache["count"] = len(prices)
+            # Promedio de los primeros N anuncios (mejor precio primero según Binance).
+            # Esto diluye cualquier anuncio puntual con precio atípico en vez de
+            # depender de un único valor máximo.
+            N = 7
+            top_n = prices[:N]
+            avg_price = sum(top_n) / len(top_n)
+            cache["usdt_price"] = round(avg_price, 4)
+            cache["count"] = len(top_n)
             cache["merchant_filter"] = not used_fallback
         else:
             error_msg = "No se encontraron anuncios de venta (ni con ni sin filtro de comerciante)"
@@ -149,3 +125,4 @@ def get_rates():
         "merchant_filter": cache["merchant_filter"],
         "error": cache["error"]
     }
+    
