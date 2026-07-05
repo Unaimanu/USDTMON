@@ -26,6 +26,7 @@ cache = {
     "usdt_price": 0.00,
     "bcv_price": 0.00,
     "count": 0,
+    "merchant_filter": None,
     "error": None
 }
 
@@ -35,34 +36,46 @@ HEADERS_BINANCE = {
     "User-Agent": "Mozilla/5.0"
 }
 
+def fetch_binance_prices(trade_type, pro_merchant_only, rows=10):
+    """Consulta Binance P2P y devuelve la lista de precios de los anuncios encontrados."""
+    payload = {
+        "page": 1,
+        "rows": rows,
+        "payTypes": [],
+        "asset": "USDT",
+        "fiat": "VES",
+        "tradeType": trade_type,
+        "proMerchantAds": pro_merchant_only
+    }
+    r_bin = requests.post(URL_BINANCE, headers=HEADERS_BINANCE, json=payload, timeout=15)
+    r_bin.raise_for_status()
+    data = r_bin.json()
+    ads = data.get("data", []) or []
+    return [float(ad.get("adv", {}).get("price")) for ad in ads if ad.get("adv", {}).get("price")]
+
+
 def fetch_data():
     error_msg = None
 
-    # 1. Obtener precio Binance USDT (Venta de USDT filtrando solo comerciantes)
+    # 1. Obtener precio Binance USDT (Venta de USDT)
+    # Preferimos solo comerciantes verificados, pero en el lado "Vender" a veces
+    # no hay ninguno activo en el momento de la consulta. Si eso pasa, hacemos
+    # fallback a la lista general para no quedarnos sin dato.
     try:
-        payload = {
-            "page": 1,
-            "rows": 10,
-            "payTypes": [],
-            "asset": "USDT",
-            "fiat": "VES",
-            "tradeType": "SELL",         # Apartado de VENTA (yo vendo USDT)
-            "proMerchantAds": True       # Solo COMERCIANTES VERIFICADOS
-        }
-        r_bin = requests.post(URL_BINANCE, headers=HEADERS_BINANCE, json=payload, timeout=15)
-        r_bin.raise_for_status()
-        data = r_bin.json()
-        ads = data.get("data", []) or []
+        prices = fetch_binance_prices("SELL", pro_merchant_only=True)
+        used_fallback = False
 
-        # Obtenemos los precios de los anuncios devueltos
-        prices = [float(ad.get("adv", {}).get("price")) for ad in ads if ad.get("adv", {}).get("price")]
+        if not prices:
+            prices = fetch_binance_prices("SELL", pro_merchant_only=False)
+            used_fallback = True
 
         if prices:
             # Al vender USDT, quiero el precio más alto que me paguen (max)
             cache["usdt_price"] = round(max(prices), 4)
             cache["count"] = len(prices)
+            cache["merchant_filter"] = not used_fallback
         else:
-            error_msg = "No se encontraron anuncios de venta de comerciantes verificados"
+            error_msg = "No se encontraron anuncios de venta (ni con ni sin filtro de comerciante)"
     except Exception as e:
         error_msg = f"Error Binance: {str(e)}"
 
@@ -103,6 +116,6 @@ def get_rates():
         "usdt_price": cache["usdt_price"],
         "bcv_price": cache["bcv_price"],
         "ads_used": cache["count"],
+        "merchant_filter": cache["merchant_filter"],
         "error": cache["error"]
     }
-    
